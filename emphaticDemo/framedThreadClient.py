@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 
 # Echo client program
-import socket, sys, re
+import socket, sys, re, os
 import params
 from framedSock import FramedStreamSock
 from threading import Thread
@@ -61,15 +61,43 @@ class ClientThread(Thread):
            sys.exit(1)
 
        fs = FramedStreamSock(s, debug=debug)
+       
+       inputStr = input("Input your file's name: ")
+       #If file does not exist it will keep prompting the user to send the name of an existing file
+       while not os.path.exists(inputStr):
+           print("Invalid File, Try Again")
+           inputStr = input("Input your file's name: ")
 
+       inFile = open(inputStr, "rb")
 
-       print("sending hello world")
-       fs.sendmsg(b"hello world")
-       print("received:", fs.receivemsg())
+       #Try catch block to handle errors while reading the file
+       try:
+           #File's name is sent first to create file on server side
+           print("sending name: " + inputStr)
+           fs.sendmsg(bytes(inputStr.rstrip("\n\r"), encoding='ascii'))
+           print("received:", fs.receivemsg())
+            
+           #For every line in the file the client will send a message containing that line
+           print("Sending...\n")
+           l = inFile.read(100)
+           while (l):
+               print("sending: ")
+               fs.sendmsg(l)
+               print("received:", fs.receivemsg())
+               l = inFile.read(100)
+           inFile.close()
+                    
+       except Exception as e:
+           print(e)
+           print("Error reading file")
 
-       fs.sendmsg(b"hello world")
-       print("received:", fs.receivemsg())
+       #print("sending hello world")
+       #fs.sendmsg(b"hello world")
+       #print("received:", fs.receivemsg())
 
-for i in range(100):
-    ClientThread(serverHost, serverPort, debug)
+       #fs.sendmsg(b"hello world")
+       #print("received:", fs.receivemsg())
+
+#for i in range(100):
+ClientThread(serverHost, serverPort, debug)
 
