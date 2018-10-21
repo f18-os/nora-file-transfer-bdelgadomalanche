@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 import sys, os, socket, params, time
-from threading import Thread
+from threading import Thread, Lock
 from framedSock import FramedStreamSock
 
 switchesVarDefaults = (
@@ -25,6 +25,7 @@ print("listening on:", bindAddr)
 
 class ServerThread(Thread):
     requestCount = 0            # one instance / class
+    mutex = Lock()
     def __init__(self, sock, debug):
         Thread.__init__(self, daemon=True)
         self.fsock, self.debug = FramedStreamSock(sock, debug), debug
@@ -33,55 +34,45 @@ class ServerThread(Thread):
         state = "nameCheck"
         fileName = ""
         while True:
-            msg = self.fsock.receivemsg()
-            if not msg:
-                if self.debug: print(self.fsock, "server thread done")
-                return
-            print(msg)
-            requestNum = ServerThread.requestCount
-            time.sleep(0.001)
-            ServerThread.requestCount = requestNum + 1
-            #msg = ("%s! (%d)" % (msg, requestNum)).encode()
-            #self.fsock.sendmsg(msg)
-            
-            print(state)
-            if state == "nameCheck":
-                fileName = msg
-                state = "firstRun"
-                if debug: print("rec'd: ", msg)
+            ServerThread.mutex.acquire()
+            try:
+                msg = self.fsock.receivemsg()
                 if not msg:
                     if self.debug: print(self.fsock, "server thread done")
                     return
-                msg = ("%s! (%d)" % (msg, requestNum)).encode()
-                self.fsock.sendmsg(msg)
-            
-            #In this state the file overwrites the file if it already exists in the server directory 
-            elif state == "firstRun":
-                f = open(fileName, "wb+")
-                f.write(msg)
-                state = "continue"
-                if not msg:
-                    if self.debug: print(self.fsock, "server thread done")
-                    return
-                msg = ("%s! (%d)" % (msg, requestNum)).encode()
-                self.fsock.sendmsg(msg)
-            
-            #This state appends after the firstRun state changes so that the data is added to the new file
-            else:
-                #If the payload is not None then it will continue append otherwise it will close the child
-                if msg != None:
-                    f = open(fileName, "ab+")
+                requestNum = ServerThread.requestCount
+                #time.sleep(0.001)
+                ServerThread.requestCount = requestNum + 1
+                #msg = ("%s! (%d)" % (msg, requestNum)).encode()
+                #self.fsock.sendmsg(msg)
+                
+                if state == "nameCheck":
+                    fileName = msg.decode()
+                    print(fileName)
+                    state = "firstRun"
+                    self.fsock.sendmsg(msg)
+                
+                #In this state the file overwrites the file if it already exists in the server directory 
+                elif state == "firstRun":
+                    f = open(fileName, 'wb+')
                     f.write(msg)
                     state = "continue"
-                    if not msg:
-                        if self.debug: print(self.fsock, "server thread done")
-                        return
-                    msg = ("%s! (%d)" % (msg, requestNum)).encode()
                     self.fsock.sendmsg(msg)
+                
+                #This state appends after the firstRun state changes so that the data is added to the new file
                 else:
-                    print("File Received")
-                    f.close()
-                    sys.exit(0)
+                    #If the payload is not None then it will continue append otherwise it will close the child
+                    if msg != None:
+                        f = open(fileName, 'ab+')
+                        f.write(msg)
+                        state = "continue"
+                        self.fsock.sendmsg(msg)
+                    else:
+                        print("File Received")
+                        f.close()
+                        sys.exit(0)
+            finally:
+                ServerThread.mutex.release()
 
 while True:
     sock, addr = lsock.accept()
